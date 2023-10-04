@@ -6,7 +6,21 @@ export default class MovieController {
     // Write the code to query the database using a simple find() method.
     // More on the find method in the documentation: https://docs.mongodb.com/manual/reference/method/db.collection.find/
     // const movies = await collection.find();
-    const movies = [];
+    const movies = await collection
+      .find(
+        { title: searchTerm },
+        {
+          title: 1,
+          year: 1,
+          "imdb.rating": 1,
+          fullplot: 1,
+          poster: 1,
+          released: 1,
+          genres: 1,
+        },
+      )
+      .limit(20)
+      .toArray();
 
     return movies;
   }
@@ -14,15 +28,56 @@ export default class MovieController {
   async findWithRegex(searchTerm) {
     // Write the code to query the database using a regular expression.
     // More on regular expressions in the documentation: https://docs.mongodb.com/manual/reference/operator/query/regex/
-    const movies = [];
-
+    const movies = await collection
+      .find(
+        { title: { $regex: new RegExp(searchTerm, "i") } },
+        {
+          title: 1,
+          year: 1,
+          "imdb.rating": 1,
+          fullplot: 1,
+          poster: 1,
+          released: 1,
+          genres: 1,
+        },
+      )
+      .limit(20)
+      .toArray();
     return movies;
   }
 
   async search(searchTerm) {
     // Write the code to perform a full text search on the database.
     // You will need to use an aggregation pipeline: https://docs.mongodb.com/manual/core/aggregation-pipeline/
-    const movies = [];
+    const movies = await collection
+      .aggregate([
+        {
+          $search: {
+            index: "fulltextsearch",
+            text: {
+              query: searchTerm,
+              path: {
+                wildcard: "*",
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            title: 1,
+            year: 1,
+            "imdb.rating": 1,
+            fullplot: 1,
+            poster: 1,
+            released: 1,
+            genres: 1,
+          },
+        },
+        {
+          $limit: 20,
+        },
+      ])
+      .toArray();
 
     return movies;
   }
@@ -30,7 +85,38 @@ export default class MovieController {
   async fuzzySearch(searchTerm) {
     // Write the code to improve your search experience with fuzzy matching
     // More on fuzzy matching in the documentation: https://www.mongodb.com/docs/atlas/atlas-search/text/
-    const movies = [];
+    const movies = await collection
+      .aggregate([
+        {
+          $search: {
+            index: "fulltextsearch",
+            text: {
+              query: searchTerm,
+              path: {
+                wildcard: "*",
+              },
+              fuzzy: {
+                maxEdits: 2,
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            title: 1,
+            year: 1,
+            "imdb.rating": 1,
+            fullplot: 1,
+            poster: 1,
+            released: 1,
+            genres: 1,
+          },
+        },
+        {
+          $limit: 20,
+        },
+      ])
+      .toArray();
 
     return movies;
   }
@@ -38,7 +124,42 @@ export default class MovieController {
   async scoredSearch(searchTerm) {
     // Write the code to improve your search experience with scored search
     // More on scored search in the documentation: https://www.mongodb.com/docs/atlas/atlas-search/text/
-    const movies = [];
+    const movies = await collection
+      .aggregate([
+        {
+          $search: {
+            index: "fulltextsearch",
+            text: {
+              query: searchTerm,
+              path: "title",
+              fuzzy: {
+                maxEdits: 1,
+              },
+              score: {
+                function: {
+                  add: [
+                    { multiply: [{ path: "awards.wins" }, { constant: 10 }] },
+                    { score: "relevance" },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            title: 1,
+            year: 1,
+            "imdb.rating": 1,
+            fullplot: 1,
+            poster: 1,
+            released: 1,
+            genres: 1,
+            score: { $meta: "searchScore" },
+          },
+        },
+      ])
+      .toArray();
 
     return movies;
   }
@@ -47,8 +168,35 @@ export default class MovieController {
     // Write the code to do a semantic search using vector embeddings
     // You can use the getTermEmbeddings function to convert the searchTerms into embeddings
     // More on the knnBeta operator in the documentation: https://www.mongodb.com/docs/atlas/atlas-search/knn-beta/
-    const movies = [];
-    
+    const embeddedSearchTerms = await getTermEmbeddings(searchTerms);
+    if (embeddedSearchTerms === null) throw new Error("No embedding found");
+
+    const movies = await collection
+      .aggregate([
+        {
+          $search: {
+            index: "vectorsearch",
+            knnBeta: {
+              vector: embeddedSearchTerms,
+              path: "plot_embedding",
+              k: 20,
+            },
+          },
+        },
+        {
+          $project: {
+            title: 1,
+            year: 1,
+            "imdb.rating": 1,
+            fullplot: 1,
+            poster: 1,
+            released: 1,
+            genres: 1,
+            score: { $meta: "searchScore" },
+          },
+        },
+      ])
+      .toArray();
     return movies;
   }
 
